@@ -1,0 +1,87 @@
+name: Tag
+
+# Every push to main gets the tag v<ROOK_VERSION>-<n>, where n is one higher than the highest
+# existing tag for that Rook version. Only the tip of main is tagged: when merges land faster than
+# the runs, the newest merge gets the next tag and the ones it superseded get none.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check ROOK_VERSION
+        run: |
+          version=$(tr -d '[:space:]' < ROOK_VERSION)
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error file=ROOK_VERSION::ROOK_VERSION must hold a Rook release such as v1.21.0, not '$version'"
+            exit 1
+          fi
+
+      - name: Build and vet
+        run: |
+          go build ./...
+          go vet ./...
+
+      - name: Check the copied types against Rook
+        run: make check-upstream
+
+      - name: Check generated code
+        run: |
+          make generate
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::Generated code is out of date: run make generate and commit the result"
+            exit 1
+          fi
+
+  tag:
+    if: github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: tag
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tag the tip of main
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < ROOK_VERSION)
+
+          if [ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$GITHUB_SHA" ]; then
+            echo "::notice::main has moved past $GITHUB_SHA; the run for the newer commit tags it"
+            exit 0
+          fi
+
+          tags=$(git ls-remote --tags --refs origin | sed 's#refs/tags/##')
+          if awk -v sha="$GITHUB_SHA" '$1 == sha && $2 ~ /^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$/ { found = 1 } END { exit !found }' <<< "$tags"; then
+            echo "::notice::$GITHUB_SHA is already tagged"
+            exit 0
+          fi
+
+          last=$(awk -v prefix="$version-" '
+            index($2, prefix) == 1 {
+              n = substr($2, length(prefix) + 1)
+              if (n ~ /^[0-9]+$/ && n + 0 > max) max = n + 0
+            }
+            END { print max + 0 }' <<< "$tags")
+          tag="$version-$((last + 1))"
+
+          git push origin "$GITHUB_SHA:refs/tags/$tag"
+          echo "::notice::Tagged $GITHUB_SHA as $tag"
