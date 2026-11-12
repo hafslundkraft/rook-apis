@@ -1,0 +1,35 @@
+# Dependabot version updates on the HAPPI team's schedule. gh-repo-configure keeps
+# the schedule, groups, commit prefix and labels of every entry on that standard;
+# directories, ignores and the rest of each entry are this repository's own.
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Europe/Oslo"
+    groups:
+      all:
+        patterns: ["*"]
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "Europe/Oslo"
+    groups:
+      all:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
